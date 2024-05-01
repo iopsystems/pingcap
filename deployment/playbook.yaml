@@ -1,0 +1,9 @@
+- name: Pingcap Deployment
+  hosts: pingcap
+  tasks:
+    - name: check tiup 
+      stat: path=~/.tiup
+      register: tiup_exists
+    - name: install tiup
+      shell: curl --proto '=https' --tlsv1.2 -sSf https://tiup-mirrors.pingcap.com/install.sh | sh
+      when: not tiup_exists.stat.exists
