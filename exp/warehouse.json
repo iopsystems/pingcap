@@ -1,0 +1,7 @@
+{
+    "matrix": {
+	"warehouses": [ 4, 8],
+	"partitions" : [4, 8],
+	"threads": [4, 8]
+    }
+}
