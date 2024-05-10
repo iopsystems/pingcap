@@ -5,7 +5,7 @@
   become_method: ansible.builtin.sudo
   tasks:
     - name: check tiup 
-      stat: path=~/.tiup
+      stat: path=/home/systemslab-agent/.tiup
       register: tiup_exists
     - name: install tiup
       shell: curl --proto '=https' --tlsv1.2 -sSf https://tiup-mirrors.pingcap.com/install.sh | sh
@@ -14,8 +14,62 @@
   hosts: pingcap
   tasks:
     - name: check tiup 
-      stat: path=~/.tiup
+      stat: path=/home/ubuntu/.tiup
       register: tiup_exists
     - name: install tiup
       shell: curl --proto '=https' --tlsv1.2 -sSf https://tiup-mirrors.pingcap.com/install.sh | sh
       when: not tiup_exists.stat.exists
+- name: OS settings
+  hosts: pingcap
+  become: true
+  become_user: root
+  become_method: ansible.builtin.sudo
+  tasks:  
+    - name: Set vm.swappiness
+      ansible.posix.sysctl:
+        name: vm.swappiness
+        value: '0'
+        state: present
+        reload: true
+    - name: Set net.core.somaxconn
+      ansible.posix.sysctl:
+        name: net.core.somaxconn
+        value: '32768'
+        state: present
+        reload: true  
+    - name: Set net.ipv4.tcp_syncookies
+      ansible.posix.sysctl:
+        name: net.ipv4.tcp_syncookies
+        value: '0'
+        state: present
+        reload: true        
+    - name: Set the hard file fd limit to 1000000 for systemslab-agent
+      community.general.pam_limits:
+        domain: 'systemslab-agent'
+        limit_type: hard
+        limit_item: nofile
+        value: 1000000
+
+    - name: Set the soft file fd limit to 1000000 for systemslab-agent
+      community.general.pam_limits:
+        domain: 'systemslab-agent'
+        limit_type: soft
+        limit_item: nofile
+        value: 1000000
+
+    - name: Set the hard stack limit to 32768 for systemslab-agent
+      community.general.pam_limits:
+        domain: 'systemslab-agent'
+        limit_type: hard
+        limit_item: stack
+        value: 32768
+
+    - name: Set the soft stack limit to 32768 for systemslab-agent
+      community.general.pam_limits:
+        domain: 'systemslab-agent'
+        limit_type: soft
+        limit_item: stack
+        value: 32768
+    
+    - name: Disalbe THP
+      shell: echo never > /sys/kernel/mm/transparent_hugepage/enabled
