@@ -1,7 +1,7 @@
 local systemslab = import 'systemslab.libsonnet';
 local bash = systemslab.bash;
 local upload_artifact = systemslab.upload_artifact;
-function(warehouses=4, partitions=4, threads=4)
+function(warehouses=4, partitions=1, threads=1)
 {
   local config = {
     name: "pingcap-tpcc-cluster",
@@ -10,7 +10,7 @@ function(warehouses=4, partitions=4, threads=4)
     partitions: partitions,
     threads: threads,
     storage: "/mnt/localssd-1",
-    interval: "10s",
+    interval: "1s",
     duration: "60s",
     parameters: {
       warehouses: warehouses,
@@ -30,8 +30,7 @@ function(warehouses=4, partitions=4, threads=4)
     },
     pd_servers: [{ host: "PD_SERVER_IP"}],
     tidb_servers: [{ host: "TIDB_SERVER_IP"}],
-    tikv_servers: [{ host: "TIKV_SERVER_IP"}],    
-    tiflash_servers: [{ host: "TIFLASH_SERVER_IP"}],
+    tikv_servers: [{ host: "TIKV_SERVER_IP"}],       
   },
   metadata: config,
   name: config.name,
@@ -68,7 +67,9 @@ function(warehouses=4, partitions=4, threads=4)
         systemslab.upload_artifact('tiup_deploy_log'),
         bash('~/.tiup/bin/tiup cluster start systemslab-test --init -y | tee tiup_start_log'),
         systemslab.upload_artifact('tiup_start_log'),
-        systemslab.barrier('tpcc-start'),
+        bash('~/.tiup/bin/tiup cluster display systemslab-test | tee tiup_display_log'),
+        systemslab.upload_artifact('tiup_display_log'),
+        systemslab.barrier('tpcc-warmup'),
         bash(
           |||
             WAREHOUSES=%s
@@ -77,54 +78,79 @@ function(warehouses=4, partitions=4, threads=4)
             INTERVAL=%s
             THREADS=%s
             DB_PASSWORD=`cat tiup_start_log | grep -oP "(?<=The new password is: ').*(?=')"`
-            time ~/.tiup/bin/tiup bench tpcc --warehouses $WAREHOUSES --parts $PARTITIONS prepare -T $THREADS -H ${TIDB_SERVER_ADDR} -P 4000 -p ${DB_PASSWORD}
-            ~/.tiup/bin/tiup bench tpcc --warehouses $WAREHOUSES --time $DURATION --interval $INTERVAL -H ${TIDB_SERVER_ADDR} -P 4000 -p ${DB_PASSWORD} --output json run | tee tpcc.json
-            ~/.tiup/bin/tiup cluster destroy systemslab-test -y
+            time ~/.tiup/bin/tiup bench tpcc --warehouses $WAREHOUSES --parts $PARTITIONS prepare -T 8 -H ${TIDB_SERVER_ADDR} -P 4000 -p ${DB_PASSWORD}
+            ~/.tiup/bin/tiup bench tpcc --warehouses $WAREHOUSES --time $DURATION --interval $INTERVAL -H ${TIDB_SERVER_ADDR} -P 4000 -p ${DB_PASSWORD} --output json run | tee tpcc-warmup.json
           ||| % [config.warehouses, config.partitions, config.duration, config.interval, config.threads]
         ),
-        systemslab.upload_artifact('tpcc.json'), 
+        systemslab.upload_artifact('tpcc-warmup.json'), 
+        systemslab.barrier('tpcc-start'),        
+        bash(
+          |||
+            WAREHOUSES=%s
+            PARTITIONS=%s
+            DURATION=%s
+            INTERVAL=%s
+            THREADS=%s
+            DB_PASSWORD=`cat tiup_start_log | grep -oP "(?<=The new password is: ').*(?=')"`           
+            ~/.tiup/bin/tiup bench tpcc --warehouses $WAREHOUSES --time $DURATION --interval $INTERVAL -H ${TIDB_SERVER_ADDR} -P 4000 -p ${DB_PASSWORD} --output json run | tee tpcc.json
+          ||| % [config.warehouses, config.partitions, config.duration, config.interval, config.threads]
+        ),
+        systemslab.upload_artifact('tpcc.json'),
         systemslab.barrier('tpcc-end'),
+        bash(
+          |||
+            ~/.tiup/bin/tiup cluster destroy systemslab-test -y
+          |||
+        ),
       ],
     },    
     pd_server: {
       host: {
-        tags: config.tags,
+        tags: ['pingcap', 'i3en-xlarge-1'],         
       },
       steps: [
         systemslab.barrier('cluster-up'),
+        systemslab.barrier('tpcc-warmup'),
         systemslab.barrier('tpcc-start'),
         systemslab.barrier('tpcc-end'),
       ],
     },
     tidb_server: {
       host: {
-        tags: config.tags,
+        tags: ['pingcap', 'i3en-2xlarge-2'],         
       },
       steps : [
         systemslab.barrier('cluster-up'),
+        systemslab.barrier('tpcc-warmup'),
         systemslab.barrier('tpcc-start'),
+        bash(
+          |||            
+            sudo tshark -f 'tcp port 4000 or tcp port 20160' -w /tmp/tidb.pcap --interface ens5 -a duration:62&
+            sudo perf stat -p `pgrep tidb-server` -e task-clock -I 1 -j -o tidb_perf.json -- sleep 62
+            sudo chmod 777 /tmp/tidb.pcap
+          |||
+        ),
+        systemslab.upload_artifact('tidb_perf.json'),
+        systemslab.upload_artifact('/tmp/tidb.pcap'),
         systemslab.barrier('tpcc-end'),       
       ],
     },
     tikv_server: {
       host: {
-        tags: config.tags,
+        tags: ['pingcap', 'i3en-2xlarge-3'],        
       },
       steps : [
         systemslab.barrier('cluster-up'),
+        systemslab.barrier('tpcc-warmup'),
         systemslab.barrier('tpcc-start'),
+        bash(
+          |||
+            sudo perf stat -p `pgrep tikv-server` -e task-clock -I 1 -j -o tikv_perf.json -- sleep 62
+          |||
+        ),    
+        systemslab.upload_artifact('tikv_perf.json'),
         systemslab.barrier('tpcc-end'),
       ],
-    }, 
-    tiflash_server: {
-      host: {
-        tags: config.tags,
-      },
-      steps : [
-        systemslab.barrier('cluster-up'),
-        systemslab.barrier('tpcc-start'),
-        systemslab.barrier('tpcc-end'),
-      ],
-    },         
+    },       
   }
 }

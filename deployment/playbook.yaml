@@ -1,3 +1,13 @@
+- name: Install Packages
+  hosts: pingcap
+  become: true
+  become_user: root
+  become_method: ansible.builtin.sudo
+  tasks:
+    - name: Install tshark
+      ansible.builtin.apt:
+        name:
+          - tshark
 - name: Pingcap Deployment For Systemslab-agent
   hosts: pingcap
   become: true
