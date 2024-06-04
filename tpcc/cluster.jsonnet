@@ -10,8 +10,8 @@ function(warehouses=4, partitions=1, threads=1)
     partitions: partitions,
     threads: threads,
     storage: "/mnt/localssd-1",
-    interval: "1s",
-    duration: "60s",
+    interval: "10s",
+    duration: "10s",
     parameters: {
       warehouses: warehouses,
       partitions: partitions,
@@ -79,7 +79,7 @@ function(warehouses=4, partitions=1, threads=1)
             THREADS=%s
             DB_PASSWORD=`cat tiup_start_log | grep -oP "(?<=The new password is: ').*(?=')"`
             time ~/.tiup/bin/tiup bench tpcc --warehouses $WAREHOUSES --parts $PARTITIONS prepare -T 8 -H ${TIDB_SERVER_ADDR} -P 4000 -p ${DB_PASSWORD}
-            ~/.tiup/bin/tiup bench tpcc --warehouses $WAREHOUSES --time $DURATION --interval $INTERVAL -H ${TIDB_SERVER_ADDR} -P 4000 -p ${DB_PASSWORD} --output json run | tee tpcc-warmup.json
+            ~/.tiup/bin/tiup bench tpcc --warehouses $WAREHOUSES --time 60s -H ${TIDB_SERVER_ADDR} -P 4000 -p ${DB_PASSWORD} --output json run | tee tpcc-warmup.json
           ||| % [config.warehouses, config.partitions, config.duration, config.interval, config.threads]
         ),
         systemslab.upload_artifact('tpcc-warmup.json'), 
@@ -91,8 +91,9 @@ function(warehouses=4, partitions=1, threads=1)
             DURATION=%s
             INTERVAL=%s
             THREADS=%s
-            DB_PASSWORD=`cat tiup_start_log | grep -oP "(?<=The new password is: ').*(?=')"`           
-            ~/.tiup/bin/tiup bench tpcc --warehouses $WAREHOUSES --time $DURATION --interval $INTERVAL -H ${TIDB_SERVER_ADDR} -P 4000 -p ${DB_PASSWORD} --output json run | tee tpcc.json
+            DB_PASSWORD=`cat tiup_start_log | grep -oP "(?<=The new password is: ').*(?=')"`            
+            sleep 22
+            ~/.tiup/bin/tiup bench tpcc -T $THREADS --warehouses $WAREHOUSES --time $DURATION --interval $INTERVAL -H ${TIDB_SERVER_ADDR} -P 4000 -p ${DB_PASSWORD} --output json run | tee tpcc.json
           ||| % [config.warehouses, config.partitions, config.duration, config.interval, config.threads]
         ),
         systemslab.upload_artifact('tpcc.json'),
@@ -111,6 +112,7 @@ function(warehouses=4, partitions=1, threads=1)
       steps: [
         systemslab.barrier('cluster-up'),
         systemslab.barrier('tpcc-warmup'),
+        bash("du -sh /mnt/localssd-1/tidb-data || true"),
         systemslab.barrier('tpcc-start'),
         systemslab.barrier('tpcc-end'),
       ],
@@ -122,14 +124,19 @@ function(warehouses=4, partitions=1, threads=1)
       steps : [
         systemslab.barrier('cluster-up'),
         systemslab.barrier('tpcc-warmup'),
+        bash("du -sh /mnt/localssd-1/tidb-data || true"),
         systemslab.barrier('tpcc-start'),
         bash(
           |||            
-            sudo tshark -f 'tcp port 4000 or tcp port 20160' -w /tmp/tidb.pcap --interface ens5 -a duration:62&
-            sudo perf stat -p `pgrep tidb-server` -e task-clock -I 1 -j -o tidb_perf.json -- sleep 62
+            sudo pkill tidb-server            
+            sudo tshark -f 'tcp port 4000 or tcp port 20160' -w /tmp/tidb.pcap --interface ens5 -a duration:32&
+            sleep 20
+            date +%s%N > perf_epoch.txt
+            sudo perf stat -p `pgrep tidb-server` -e task-clock -I 1 -j -o tidb_perf.json -- sleep 12
             sudo chmod 777 /tmp/tidb.pcap
           |||
         ),
+        systemslab.upload_artifact('perf_epoch.txt'),
         systemslab.upload_artifact('tidb_perf.json'),
         systemslab.upload_artifact('/tmp/tidb.pcap'),
         systemslab.barrier('tpcc-end'),       
@@ -142,12 +149,16 @@ function(warehouses=4, partitions=1, threads=1)
       steps : [
         systemslab.barrier('cluster-up'),
         systemslab.barrier('tpcc-warmup'),
+        bash("du -sh /mnt/localssd-1/tidb-data || true"),
         systemslab.barrier('tpcc-start'),
         bash(
           |||
-            sudo perf stat -p `pgrep tikv-server` -e task-clock -I 1 -j -o tikv_perf.json -- sleep 62
+            sleep 20
+            date +%s%N > perf_epoch.txt
+            sudo perf stat -p `pgrep tikv-server` -e task-clock -I 1 -j -o tikv_perf.json -- sleep 12
           |||
-        ),    
+        ), 
+        systemslab.upload_artifact('perf_epoch.txt'),
         systemslab.upload_artifact('tikv_perf.json'),
         systemslab.barrier('tpcc-end'),
       ],
