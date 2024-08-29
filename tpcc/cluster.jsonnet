@@ -1,11 +1,14 @@
 local systemslab = import 'systemslab.libsonnet';
 local bash = systemslab.bash;
 local upload_artifact = systemslab.upload_artifact;
-function(warehouses=4, partitions=1, threads=1)
+function(warehouses=4, partitions=1, threads=1, bench=true)
 {
   local config = {
-    name: "pingcap-tpcc-cluster",
-    tags: ["pingcap"],    
+    name: "pingcap-tpcc-cluster",  
+    tiup_tags: ['pingcap', 'm7i-2xlarge-1'],
+    tikv_tags: ['pingcap', 'm7i-2xlarge-2'],
+    tidb_tags: ['pingcap', 'm7i-2xlarge-3'],
+    tipd_tags: ['pingcap', 'm7i-2xlarge-4'],
     warehouses: warehouses,
     partitions: partitions,
     threads: threads,
@@ -29,6 +32,8 @@ function(warehouses=4, partitions=1, threads=1)
       arch: "amd64",
     },
     pd_servers: [{ host: "PD_SERVER_IP"}],
+    monitoring_servers: [{ host: "PD_SERVER_IP"}],
+    grafana_servers: [{ host: "PD_SERVER_IP"}],
     tidb_servers: [{ host: "TIDB_SERVER_IP"}],
     tikv_servers: [{ host: "TIKV_SERVER_IP"}],       
   },
@@ -37,7 +42,7 @@ function(warehouses=4, partitions=1, threads=1)
   jobs: {
     tiup_control: {
       host: {
-        tags: ['pingcap', 'i3en-2xlarge-1'],    
+        tags: config.tiup_tags,
       },       
       steps: [
         # cleaning up the data also any remaining tidb processes
@@ -45,8 +50,7 @@ function(warehouses=4, partitions=1, threads=1)
           |||
             ~/.tiup/bin/tiup cluster destroy systemslab-test -y || true
           |||
-        ),
-        systemslab.barrier('cluster-up'),
+        ),        
         systemslab.write_file('topology.yaml', std.manifestYamlDoc(topology, indent_array_in_object=true, quote_keys=false)),
         bash(
           |||
@@ -58,6 +62,7 @@ function(warehouses=4, partitions=1, threads=1)
             echo "TIKV SERVER at ${TIKV_SERVER_ADDR}"
             sed -ie "s/TIFLASH_SERVER_IP/${TIFLASH_SERVER_ADDR}/g" topology.yaml
             echo "TIFLASH SERVER at ${TIFLASH_SERVER_ADDR}"
+            cp ./topology.yaml /tmp/topology.yaml
           |||
         ),
         systemslab.upload_artifact('topology.yaml'),
@@ -68,8 +73,14 @@ function(warehouses=4, partitions=1, threads=1)
         bash('~/.tiup/bin/tiup cluster start systemslab-test --init -y | tee tiup_start_log'),
         systemslab.upload_artifact('tiup_start_log'),
         bash('~/.tiup/bin/tiup cluster display systemslab-test | tee tiup_display_log'),
-        systemslab.upload_artifact('tiup_display_log'),
-        systemslab.barrier('tpcc-warmup'),
+        systemslab.upload_artifact('tiup_display_log'),               
+        bash(
+          |||
+            DB_PASSWORD=`cat tiup_start_log | grep -oP "(?<=The new password is: ').*(?=')"`
+            echo $DB_PASSWORD > /tmp/tidb_password.txt
+          |||
+        ),
+      ] + (if bench == true then [
         bash(
           |||
             WAREHOUSES=%s
@@ -103,26 +114,24 @@ function(warehouses=4, partitions=1, threads=1)
             ~/.tiup/bin/tiup cluster destroy systemslab-test -y
           |||
         ),
-      ],
+      ] else [])
     },    
     pd_server: {
       host: {
-        tags: ['pingcap', 'i3en-xlarge-1'],         
+        tags: config.tipd_tags,         
       },
-      steps: [
-        systemslab.barrier('cluster-up'),
+      steps: if bench == true then [        
         systemslab.barrier('tpcc-warmup'),
         bash("du -sh /mnt/localssd-1/tidb-data || true"),
         systemslab.barrier('tpcc-start'),
         systemslab.barrier('tpcc-end'),
-      ],
+      ] else [],
     },
     tidb_server: {
       host: {
-        tags: ['pingcap', 'i3en-2xlarge-2'],         
+        tags: config.tidb_tags,         
       },
-      steps : [
-        systemslab.barrier('cluster-up'),
+      steps : if bench == true then [  
         systemslab.barrier('tpcc-warmup'),
         bash("du -sh /mnt/localssd-1/tidb-data || true"),
         systemslab.barrier('tpcc-start'),
@@ -140,14 +149,13 @@ function(warehouses=4, partitions=1, threads=1)
         systemslab.upload_artifact('tidb_perf.json'),
         systemslab.upload_artifact('/tmp/tidb.pcap'),
         systemslab.barrier('tpcc-end'),       
-      ],
+      ] else []
     },
     tikv_server: {
       host: {
-        tags: ['pingcap', 'i3en-2xlarge-3'],        
+        tags: config.tikv_tags,        
       },
-      steps : [
-        systemslab.barrier('cluster-up'),
+      steps : if bench == true then [
         systemslab.barrier('tpcc-warmup'),
         bash("du -sh /mnt/localssd-1/tidb-data || true"),
         systemslab.barrier('tpcc-start'),
@@ -161,7 +169,7 @@ function(warehouses=4, partitions=1, threads=1)
         systemslab.upload_artifact('perf_epoch.txt'),
         systemslab.upload_artifact('tikv_perf.json'),
         systemslab.barrier('tpcc-end'),
-      ],
+      ] else []
     },       
   }
 }
