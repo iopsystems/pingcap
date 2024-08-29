@@ -50,7 +50,26 @@ function(sysbench_threads="16", tikv_network_queue="8")
             |||
           ),          
           systemslab.barrier('tikv-network-queue'),
-        ] else if config.tikv_network_queue == 8 then [
+        ] else if config.tikv_network_queue == 2 then [
+          bash(        
+            |||            
+              sudo ethtool -L ens5 combined 2
+              TIKV_PID=`pgrep tikv`              
+              sudo taskset -apc 2-7 $TIKV_PID
+            |||
+          ),
+          systemslab.barrier('tikv-network-queue'),
+        ] else if config.tikv_network_queue == 4 then [
+          bash(        
+            |||            
+              sudo ethtool -L ens5 combined 4
+              TIKV_PID=`pgrep tikv`              
+              sudo taskset -apc 4-7 $TIKV_PID
+            |||
+          ),
+          systemslab.barrier('tikv-network-queue'),
+        ] 
+        else if config.tikv_network_queue == 8 then [
           bash(        
             |||            
               sudo ethtool -L ens5 combined 8
