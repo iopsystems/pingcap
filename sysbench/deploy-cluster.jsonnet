@@ -1,17 +1,17 @@
 local systemslab = import 'systemslab.libsonnet';
 local bash = systemslab.bash;
 local upload_artifact = systemslab.upload_artifact;
-function()
+function(ec2, storage)
 {
   local config = {
     name: "pingcap-deploy-cluster",  
-    tiup_tags: ['pingcap', 'c6g-2xlarge-1'],
-    tipd_tags: ['pingcap', 'c6g-2xlarge-2'],
-    tikv_1_tags: ['pingcap', 'c6g-2xlarge-3'],
-    tidb_1_tags: ['pingcap', 'c6g-2xlarge-4'],  
-    tidb_2_tags: ['pingcap', 'c6g-2xlarge-5'],  
-    tidb_3_tags: ['pingcap', 'c6g-2xlarge-6'],    
-    storage: "/mnt/gp3",
+    tiup_tags: ['pingcap-'+ ec2, ec2 + '-1'],
+    tipd_tags: ['pingcap-' + ec2, ec2 + '-2'],
+    tikv_1_tags: ['pingcap-' + ec2, ec2 + '-3'],
+    tidb_1_tags: ['pingcap-' + ec2, ec2 + '-4'],
+    tidb_2_tags: ['pingcap-' + ec2, ec2 + '-5'],
+    tidb_3_tags: ['pingcap-' + ec2, ec2 + '-6'],
+    storage: storage,
   },
   local topology = {
     global: {

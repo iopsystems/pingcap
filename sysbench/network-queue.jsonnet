@@ -1,39 +1,44 @@
 local systemslab = import 'systemslab.libsonnet';
 local bash = systemslab.bash;
 local upload_artifact = systemslab.upload_artifact;
-function(sysbench_threads="16", tikv_network_queue="8")
+function(ec2='c6g-2xlarge', sysbench_threads="16", tikv_network_queue="8", tables="1", table_size="100000", time="120")
 {
   local config = {
     name: "pingcap-network-queue",  
-    tiup_tags: ['pingcap', 'c6g-2xlarge-1'],
-    tipd_tags: ['pingcap', 'c6g-2xlarge-2'],
-    tikv_1_tags: ['pingcap', 'c6g-2xlarge-3'],
-    tidb_1_tags: ['pingcap', 'c6g-2xlarge-4'],  
-    tidb_2_tags: ['pingcap', 'c6g-2xlarge-5'],  
-    tidb_3_tags: ['pingcap', 'c6g-2xlarge-6'],    
-    storage: "/mnt/gp3",
+    client_1_tags: ['pingcap-' + ec2, ec2 + '-1'],  
+    tikv_1_tags: ['pingcap-' + ec2, ec2 + '-3'],
+    tidb_1_tags: ['pingcap-' + ec2, ec2 + '-4'],  
+    tidb_2_tags: ['pingcap-' + ec2, ec2 + '-5'],  
+    tidb_3_tags: ['pingcap-' + ec2, ec2 + '-6'],        
     sysbench_threads: std.parseJson(sysbench_threads),
-    tikv_network_queue: std.parseJson(tikv_network_queue),
+    tikv_network_queue: std.parseJson(tikv_network_queue),  
   },
   metadata: config,
   name: config.name,
   jobs: {
-    sysbench_client: {
+    client_1_tags: {
       host: {
-        tags: config.tiup_tags,
+        tags: config.client_1_tags,
       },       
       steps: [
         # wait for the TIKV network queue setting
         systemslab.barrier('tikv-network-queue'),
+        systemslab.write_file('oltp_common.lua', importstr './oltp_common.lua'),
+        systemslab.write_file('oltp_point_select.lua', importstr './oltp_point_select.lua'),
         # run sysbench
         bash(        
           |||
             sleep 2
             SYSBENCH_THREADS=%s
-            sysbench --report-interval=1 --percentile=99 --histogram=on --time=60 --config-file=/home/systemslab-agent/config oltp_point_select --threads=$SYSBENCH_THREADS --tables=1 --table-size=100000 --db-ps-mode=auto --rand-type=uniform run | tee sysbench_output.txt
-          ||| % [config.sysbench_threads]
+            SYSBENCH_TIME=%s
+            TABLES=%s
+            TABLE_SIZE=%s                
+            sysbench --report-interval=1 --percentile=99 --time=$SYSBENCH_TIME --config-file=/home/systemslab-agent/config ./oltp_point_select.lua --threads=$SYSBENCH_THREADS --tables=$TABLES --table-size=$TABLE_SIZE --db-ps-mode=auto --rand-type=uniform run | tee sysbench_output.txt
+          ||| % [config.sysbench_threads, time, tables, table_size]
         ),
         systemslab.upload_artifact('sysbench_output.txt'),
+        #systemslab.upload_artifact('sysbench_start'),
+        #systemslab.upload_artifact('sysbench_end'),
       ],
     },        
     tikv_1_server: {
@@ -80,5 +85,5 @@ function(sysbench_threads="16", tikv_network_queue="8")
           systemslab.barrier('tikv-network-queue'),
         ] else [],
     },              
-  }
+  },
 }
