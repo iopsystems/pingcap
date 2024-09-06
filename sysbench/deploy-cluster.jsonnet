@@ -1,6 +1,8 @@
 local systemslab = import 'systemslab.libsonnet';
 local bash = systemslab.bash;
 local upload_artifact = systemslab.upload_artifact;
+# example:
+#  ec2: 
 function(ec2, storage)
 {
   local config = {
@@ -68,7 +70,7 @@ function(ec2, storage)
         bash(
           |||
             DB_PASSWORD=`cat tiup_start_log | grep -oP "(?<=The new password is: ').*(?=')"`
-            echo $DB_PASSWORD > /tmp/tidb_password.txt
+            echo $DB_PASSWORD > ~/tidb_password.txt
           |||
         ), 
       ],
