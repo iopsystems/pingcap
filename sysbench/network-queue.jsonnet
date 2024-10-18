@@ -32,8 +32,8 @@ function(ec2='c6g-2xlarge', sysbench_threads="16", tikv_network_queue="8", table
             SYSBENCH_THREADS=%s
             SYSBENCH_TIME=%s
             TABLES=%s
-            TABLE_SIZE=%s                
-            sysbench --report-interval=1 --percentile=99 --time=$SYSBENCH_TIME --config-file=/home/systemslab-agent/config ./oltp_point_select.lua --threads=$SYSBENCH_THREADS --tables=$TABLES --table-size=$TABLE_SIZE --db-ps-mode=auto --rand-type=uniform run | tee sysbench_output.txt
+            TABLE_SIZE=%s            
+            sysbench --config-file=/home/systemslab-agent/config --report-interval=1 --percentile=99 --time=$SYSBENCH_TIME  ./oltp_point_select.lua --threads=$SYSBENCH_THREADS --tables=$TABLES --table-size=$TABLE_SIZE --db-ps-mode=auto --rand-type=uniform run | tee sysbench_output.txt
           ||| % [config.sysbench_threads, time, tables, table_size]
         ),
         systemslab.upload_artifact('sysbench_output.txt'),
